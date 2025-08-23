@@ -1,0 +1,32 @@
+コミット手順
+
+powershellにて以下のコードを実行
+
+①「git add "対象資源の相対パス"」を実行する
+
+例)
+main.pyを対象資源として実行する
+
+git add .\main.py
+
+②対象資源がすべて「git add」が完了したら「git comment -m "[このバージョンアップの簡単な内容]"」を実行する
+
+例)
+main.pyを更新するバージョンアップ
+
+git comment -m "main.pyのバージョンアップ"
+
+③対象資源に対する「git comment -m "[このバージョンアップの簡単な内容]"」が完了したら「git push -u origin [ブランチ名]」を実行する
+
+例)
+mainリポジトリにて実行する
+
+git push -u origin main
+
+④実際にgit hubを確認して対象資源の「git push -u origin [ブランチ名]」が完了しているか確認を行う
+
+例)
+以下のURLにアクセスし、対象資源が「git push -u origin [ブランチ名]」されていることを確認
+
+https://github.com/youitiyamayami/kancolle_auto_click
+
