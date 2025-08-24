@@ -20,20 +20,52 @@ region     = [13, 125, 1460, 874]
 sub_region = [725, 310, 185, 55]
 
 # ===============================
-# テンプレートマッチング
+# テンプレートマッチ設定（矩形：プライマリ）
 # ===============================
 [match]
+# 基準領域内で判定するサブ領域（左上x, 左上y, 幅w, 高さh）
+sub_region = [725, 310, 185, 55]
+
 # テンプレ画像のパス（Windows はシングルクォートで OK）
-template_path = 'templates/Single_vertical_btn.png'
+template_path = "templates/Single_vertical_btn.png"
 
 # マッチ閾値（0.0〜1.0）
 threshold = 0.86
 
 # 画像のスケール倍率（順に試行）
-scales = [1.10, 1.15, 1.20, 1.25, 1.30]
+scales = [1.00, 1.10, 1.15, 1.20, 1.25, 1.30]
 
 # 連続ヒットがこの回数に達したら「押下」判定
 required_consecutive_hits = 2
+
+# ===============================
+# 円検出（正円テンプレ or ハフ変換）
+# ===============================
+[circle]
+# 基準領域内で判定するサブ領域（左上x, 左上y, 幅w, 高さh）
+sub_region = [452, 274, 562, 562]
+
+enabled = true
+method = "hough"            # "hough" | "template" | "hybrid"
+
+# method="template" のとき（円テンプレ＋マスク）
+template_path = "templates/compass_btn.png"  # 正円のテンプレ
+mask_path     = "templates/compass_btn_mask.png"
+threshold     = 0.90                    # 正円用のしきい値（別管理）
+
+# method="hough" のとき
+min_radius = 270
+max_radius = 281
+dp        = 1.2
+param1    = 100
+param2    = 28
+min_dist  = 25
+
+# 画像のスケール倍率（順に試行）
+scales = [1.10, 1.15, 1.20, 1.25, 1.30]
+
+# 共通
+required_consecutive_hits = 2   # 連続ヒット回数（既存の考え方に合わせる）
 
 # ===============================
 # 入力/クリック挙動
@@ -57,3 +89,5 @@ interval_ms = 150    # メインループの待機ms
 [logging]
 level = "INFO"       # "DEBUG" | "INFO" | "WARNING" | "ERROR"
 file  = "logs/app.log"
+
+
