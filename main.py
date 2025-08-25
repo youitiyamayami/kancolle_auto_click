@@ -1,30 +1,34 @@
 # main.py
 # -----------------------------------------------------------------------------
 # このバージョンの追加点（重要な設計方針も含む）
-# 1) 円検出（[circle]）と矩形テンプレ（[match]）に「別々の sub_region」を使えるようにした
+# 1) 実行ログ機能をモジュール化（modules/app_logger.py）
+#    - 起動時: log_app_start(app_name)
+#    - 終了ボタン押下時: log_app_exit()
+#    - 形式: [YYYY:MM:DD hh:mm:ss][LEVEL]実行された動作
+#    - 出力: ./log/YYYYMMDD_app.log（同日内は追記・日付変化で新規）
+#
+# 2) 円検出（[circle]）と矩形テンプレ（[match]）に「別々の sub_region」を使えるようにした
 #    - 矩形(プライマリ)は [match].sub_region を優先、なければ [screen].sub_region をフォールバック
 #    - 円検出は [circle].sub_region を優先、なければ [match].sub_region → [screen].sub_region の順
-# 2) 矩形テンプレの「セカンダリ判定」を追加（[match_secondary]）
+# 3) 矩形テンプレの「セカンダリ判定」を追加（[match_secondary]）
 #    - [match_secondary].enabled = true のときだけ動作
 #    - こちらも [match_secondary].sub_region を優先、なければ [screen].sub_region
-# 3) 検出順序（1ループで複数候補があっても「1クリックのみ」）
+# 4) 検出順序（1ループで複数候補があっても「1クリックのみ」）
 #    - 既定で「円 → プライマリ矩形 → セカンダリ矩形」の順に判定
 #    - どれかがクリック条件を満たしてクリックしたら、そのループでは以降をスキップ
-# 4) デバッグ保存
+# 5) デバッグ保存
 #    - 円は save_debug_circle（中心＋半径を描画）
 #    - 矩形は save_debug_rect（矩形枠を描画）
-# 5) 連続ヒットカウンタとデバウンス
+# 6) 連続ヒットカウンタとデバウンス
 #    - 円 / プライマリ / セカンダリで個別の「連続ヒット閾値（required_consecutive_hits）」を持てる
 #    - クリックのデバウンスは共通（同一マウスを叩くので共通カウンタを使用）
-#
-# 6) NEW: 画像パスの解決を「スクリプトの場所」基準に変更
+# 7) 画像パスの解決を「スクリプトの場所」基準に変更
 #    - 相対パスでも、どの作業ディレクトリから実行しても確実に読める
-#    - 読み込み前に絶対パスと exists をログ出力（診断しやすく）
+#    - 読み込み前に絶対パスと exists をログ出力（GUIステータス）
 #
 # 前提:
 #   - Python 3.11+（tomllib 使用）
-#   - pip install mss opencv-python numpy pyautogui pywin32
-#   - Windows想定（win32guiを用いたウィンドウ矩形取得は任意）
+#   - pip install mss opencv-python pyautogui
 # -----------------------------------------------------------------------------
 
 from __future__ import annotations
@@ -47,8 +51,12 @@ try:
 except ImportError:
     win32gui = None
 
+# ログ（モジュール化）
+from modules.app_logger import log_app_start, log_app_exit
+
 # スクリプトのあるディレクトリ（相対パス解決に使用）
 ROOT = Path(__file__).resolve().parent
+
 
 # ==========================
 # 設定ローダ（TOML）
@@ -758,6 +766,8 @@ class ControlWindow(tk.Tk):
                 self._worker.stop()
                 self._worker.join(timeout=2.0)
         finally:
+            # 実行時間付きで終了ログ（モジュール）
+            log_app_exit()
             self.destroy()
 
     def keep_topmost(self):
@@ -772,6 +782,9 @@ def main():
     if sys.platform.startswith("win"):
         set_dpi_awareness_windows()
     cfg = load_config()
+    app_name = str(cfg.get("app", {}).get("window_title", "")) or "Game Bot Control"
+    # 起動ログ（モジュール）
+    log_app_start(app_name)
     app = ControlWindow(cfg)
     app.mainloop()
 

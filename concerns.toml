@@ -1,0 +1,49 @@
+# concerns.toml
+[general]
+internal_modules = ["modules", "detectors", "ui", "core", "tools"]
+
+# ===== 関心カテゴリ =====
+
+[concern.config]
+include = ["**/modules/config/**", "**/config/**", "**/*config*.py"]
+forbid_imports = ["tkinter", "pyautogui"]
+
+[concern.region]
+# grab_region.py を名指しで拾う
+include = ["**/modules/region/**", "**/*region*.py", "grab_region.py", "**/grab_region.py"]
+forbid_imports = ["tkinter", "pyautogui"]
+
+[concern.capture]
+include = ["**/*capture*.py", "**/modules/*capture*.py"]
+forbid_imports = ["tkinter", "pyautogui"]
+
+[concern.detectors]
+# アルゴリズム実装を広めに拾う
+include = ["**/detectors/**", "**/*detect*.py", "**/*hough*.py", "**/*templ_match*.py"]
+forbid_imports = ["tkinter", "pyautogui"]
+
+[concern.decision]
+include = ["**/*decision*.py", "**/*policy*.py", "**/*worker*.py"]
+forbid_imports = ["tkinter"]
+
+[concern.input_emitter]
+include = ["**/*input*.py", "**/*click*.py"]
+forbid_imports = []
+
+[concern.debug_viz]
+include = ["**/*debug*.py", "**/*visual*.py"]
+forbid_imports = []
+
+[concern.ui]
+include = ["**/ui/**", "**/*tk*.py", "**/*window*.py"]
+forbid_imports = []  # UIは最上層
+
+[concern.assets]
+# create_templates.py を assets に寄せる
+include = ["**/templates/**", "**/*assets*.py", "**/*template_loader*.py", "create_templates.py", "**/create_templates.py"]
+forbid_imports = []
+
+[concern.runner]
+# tools 配下全体と main.py（ルート直下）を拾う
+include = ["main.py", "**/main.py", "tools/**/*.py", "**/tools/**/*.py"]
+forbid_imports = []

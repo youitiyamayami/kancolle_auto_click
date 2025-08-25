@@ -1,0 +1,36 @@
+kancolle_program
+├─ config
+│  └─ config.default.toml
+├─ debug_shots
+├─ image
+├─ log
+├─ modules
+│  └─ app_logger.py
+├─ templates
+│  ├─ attack_btn.png
+│  ├─ Circular_btn.png
+│  ├─ compass_btn.png
+│  ├─ compass_btn_mask.png
+│  ├─ critically_damaged__btn.png
+│  ├─ Double_vertical_btn.png
+│  ├─ moderately_damaged_btn.png
+│  ├─ next_btn.png
+│  ├─ night_battle_btn.png
+│  ├─ no_pursuit_btn.png
+│  ├─ retreat_btn.png
+│  ├─ return_btn.png
+│  ├─ Single_horizontal_btn.png
+│  ├─ Single_vertical_btn.png
+│  └─ Trapezoida_btn.png
+├─ tools
+│  ├─ concern_audit
+│  │  └─ concern_audit.py
+│  └─ treegen
+│     ├─ project_tree.txt
+│     └─ treegen.py
+├─ concern_report.json
+├─ concern_report.md
+├─ concerns.toml
+├─ main.py
+├─ run_main.bat
+└─ run_main.ps1

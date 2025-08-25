@@ -1,0 +1,97 @@
+{
+  "total_loc": 524,
+  "concerns": [
+    "assets",
+    "region",
+    "runner",
+    "unclassified"
+  ],
+  "entropy_H": 1.2056117839105864,
+  "cc95_overall": 10.649999999999991,
+  "fanout_avg": 8.666666666666666,
+  "io_avg": 0.1326139009824328,
+  "skdi": 0.23359176758658784,
+  "per_concern": {
+    "assets": {
+      "loc": 53,
+      "cc95": 4.0,
+      "ce_avg": 3,
+      "io_avg": 0.03773584905660377,
+      "files": [
+        {
+          "path": "create_templates.py",
+          "loc": 53,
+          "cc95": 4,
+          "ce": 3,
+          "io": 0.03773584905660377,
+          "concern": "assets"
+        }
+      ]
+    },
+    "region": {
+      "loc": 113,
+      "cc95": 10.899999999999997,
+      "ce_avg": 10,
+      "io_avg": 0.168141592920354,
+      "files": [
+        {
+          "path": "grab_region.py",
+          "loc": 113,
+          "cc95": 13,
+          "ce": 10,
+          "io": 0.168141592920354,
+          "concern": "region"
+        }
+      ]
+    },
+    "runner": {
+      "loc": 343,
+      "cc95": 10.649999999999999,
+      "ce_avg": 11.666666666666666,
+      "io_avg": 0.17437976575032413,
+      "files": [
+        {
+          "path": "main.py",
+          "loc": 132,
+          "cc95": 66,
+          "ce": 15,
+          "io": 0.22727272727272727,
+          "concern": "runner"
+        },
+        {
+          "path": "tools/concern_audit/concern_audit.py",
+          "loc": 14,
+          "cc95": 33,
+          "ce": 15,
+          "io": 0.2857142857142857,
+          "concern": "runner"
+        },
+        {
+          "path": "tools/treegen/treegen.py",
+          "loc": 197,
+          "cc95": 9,
+          "ce": 5,
+          "io": 0.01015228426395939,
+          "concern": "runner"
+        }
+      ]
+    },
+    "unclassified": {
+      "loc": 15,
+      "cc95": 2.0,
+      "ce_avg": 4,
+      "io_avg": 0.06666666666666667,
+      "files": [
+        {
+          "path": "modules/app_logger.py",
+          "loc": 15,
+          "cc95": 2,
+          "ce": 4,
+          "io": 0.06666666666666667,
+          "concern": "unclassified"
+        }
+      ]
+    }
+  },
+  "violations": []
+}
