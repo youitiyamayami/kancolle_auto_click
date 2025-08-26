@@ -1,0 +1,93 @@
+# ===============================
+# アプリ全体
+# ===============================
+[app]
+window_title = "試製七四式電子観測儀"                                                                                                   # 取得対象のウィンドウ名
+dry_run      = true                                                                                                                     # クリックしない検証モード
+debug_save   = true                                                                                                                     # デバッグ画像を保存するか
+debug_dir = "C:\\Users\\Kaito_Tanaka\\Desktop\\private_file\\kancolle_data\\kancolle_program\\tools\\create_templetes\\debug_shots"     # 保存先（相対 or 絶対）
+
+# ===============================
+# 画面・領域設定
+# ===============================
+[screen]
+monitor_index = 1                      # 取得するモニタ番号（1始まり推奨）
+
+# キャプチャの基準領域（左上x, 左上y, 幅w, 高さh）
+region     = [13, 125, 1460, 874]
+
+# 基準領域内で判定するサブ領域（左上x, 左上y, 幅w, 高さh）
+sub_region = [725, 310, 185, 55]
+
+# ===============================
+# テンプレートマッチ設定（矩形：プライマリ）
+# ===============================
+[match]
+# 基準領域内で判定するサブ領域（左上x, 左上y, 幅w, 高さh）
+sub_region = [725, 310, 185, 55]
+
+# テンプレ画像のパス（Windows はシングルクォートで OK）
+template_path = "templates/next_btn.png"
+
+# マッチ閾値（0.0〜1.0）
+threshold = 0.86
+
+# 画像のスケール倍率（順に試行）
+scales = [1.00, 1.10, 1.15, 1.20, 1.25, 1.30]
+
+# 連続ヒットがこの回数に達したら「押下」判定
+required_consecutive_hits = 5
+
+# ===============================
+# 円検出（正円テンプレ or ハフ変換）
+# ===============================
+[circle]
+# 基準領域内で判定するサブ領域（左上x, 左上y, 幅w, 高さh）
+sub_region = [1350, 765, 75, 75]
+
+enabled = true
+method = "hough"            # "hough" | "template" | "hybrid"
+
+# method="template" のとき（円テンプレ＋マスク）
+template_path = "templates/next_btn.png"  # 正円のテンプレ
+mask_path     = "templates/next_btn_mask.png"
+threshold     = 0.90                    # 正円用のしきい値（別管理）
+
+# method="hough" のとき
+min_radius = 270
+max_radius = 281
+dp        = 1.2
+param1    = 100
+param2    = 28
+min_dist  = 25
+
+# 画像のスケール倍率（順に試行）
+scales = [1.10, 1.15, 1.20, 1.25, 1.30]
+
+# 共通
+required_consecutive_hits = 5  # 連続ヒット回数（既存の考え方に合わせる）
+
+# ===============================
+# 入力/クリック挙動
+# ===============================
+[input]
+click_button        = "left"  # "left" | "right" | "middle"
+move_before_click   = true    # クリック前に座標へ移動する
+move_duration_sec   = 0.05    # マウス移動にかける秒数
+click_debounce_ms   = 700     # 連打防止：クリック後に次回まで待つms
+post_click_wait_ms  = 400     # 押下後の待機ms（画面反映待ち）
+
+# ===============================
+# 実行タイミング
+# ===============================
+[timing]
+interval_ms = 150    # メインループの待機ms
+
+# ===============================
+# ログ（任意：将来の拡張用）
+# ===============================
+[logging]
+level = "INFO"       # "DEBUG" | "INFO" | "WARNING" | "ERROR"
+file  = "logs/app.log"
+
+
