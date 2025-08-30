@@ -1,5 +1,5 @@
 {
-  "total_loc": 981,
+  "total_loc": 1019,
   "concerns": [
     "region",
     "runner",
@@ -8,10 +8,10 @@
     "assets"
   ],
   "entropy_H": 1.6149685300207968,
-  "cc95_overall": 9.349999999999994,
-  "fanout_avg": 8.7,
-  "io_avg": 0.1156163949589784,
-  "skdi": 0.383173850931691,
+  "cc95_overall": 9.199999999999989,
+  "fanout_avg": 8.9,
+  "io_avg": 0.1130254858680693,
+  "skdi": 0.3872452795031196,
   "per_concern": {
     "region": {
       "loc": 113,
@@ -62,10 +62,10 @@
       ]
     },
     "unclassified": {
-      "loc": 242,
-      "cc95": 6.199999999999996,
-      "ce_avg": 5.75,
-      "io_avg": 0.080625,
+      "loc": 280,
+      "cc95": 6.449999999999999,
+      "ce_avg": 6.25,
+      "io_avg": 0.07414772727272728,
       "files": [
         {
           "path": "modules/app_context.py",
@@ -93,10 +93,10 @@
         },
         {
           "path": "modules/msglog.py",
-          "loc": 50,
-          "cc95": 5,
-          "ce": 4,
-          "io": 0.06,
+          "loc": 88,
+          "cc95": 6,
+          "ce": 6,
+          "io": 0.03409090909090909,
           "concern": "unclassified"
         }
       ]

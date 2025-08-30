@@ -1,88 +1,145 @@
 # modules/msglog.py
 from __future__ import annotations
 import json
+import sys
+import platform
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Tuple, List
 from modules.app_logger import get_app_logger
 
-# ロード済みメッセージの保持
-_MESSAGES: Dict[str, str] = {}
+# 内部保持
+_MESSAGES: Dict[str, Dict[str, Any]] = {}  # code -> {"template": str, "level": "INFO", "tags": [...]}
 
 
+# 例外
 class MessagesLoadError(RuntimeError):
-    """メッセージ定義ファイルの形式/内容が不正な場合に投げる例外。"""
     pass
 
 
-def _load_messages_json(path: Path) -> Dict[str, str]:
-    """JSONファイルを読み込み、{code: message} 形式の dict を返す。"""
+# ---------- ロード & 正規化 ----------
+
+def _normalize_entry(code: str, value: Any) -> Dict[str, Any]:
+    """
+    単純文字列 or 構造化(dict) の両方を統一フォーマットに正規化する。
+    戻り値は {"template": str, "level": str, "tags": list}
+    """
+    if isinstance(value, str):
+        return {"template": value, "level": "INFO", "tags": []}
+
+    if isinstance(value, dict):
+        if "template" not in value or not isinstance(value["template"], str):
+            raise MessagesLoadError(f'messages[{code}] は "template"（文字列）が必須です')
+        tmpl = value["template"]
+        level = str(value.get("level", "INFO")).upper()
+        tags = value.get("tags", [])
+        if not isinstance(tags, list):
+            raise MessagesLoadError(f'messages[{code}].tags は配列である必要があります')
+        return {"template": tmpl, "level": level, "tags": list(tags)}
+
+    raise MessagesLoadError(f"messages[{code}] は文字列またはオブジェクトである必要があります")
+
+
+def _load_and_normalize(path: Path) -> Dict[str, Dict[str, Any]]:
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
-
     if not isinstance(data, dict):
-        raise MessagesLoadError(f"Invalid messages file format (not a JSON object): {path}")
+        raise MessagesLoadError("messages ファイルは JSON オブジェクトである必要があります")
 
-    # すべて文字列化しておく
-    return {str(k): str(v) for k, v in data.items()}
+    normalized: Dict[str, Dict[str, Any]] = {}
+    for k, v in data.items():
+        code = str(k)
+        normalized[code] = _normalize_entry(code, v)
+    return normalized
 
 
 def configure_messages(msg_path_str: Optional[str], default_search_root: Optional[Path] = None) -> None:
     """
-    メッセージ定義ファイル（JSON）をロードしてグローバルに設定する。
-    要件:
-      - 明示パスが指定されていればそれを必須とする（存在しない/壊れていればエラー）
-      - 明示パスがなければ <root>/config/messages.ja.json の存在を必須とする
-      - いずれも満たせなければ FileNotFoundError を送出（フォールバック無し）
+    メッセージ定義ファイル（JSON）をロードし、グローバルへ設定。
+    仕様:
+      - 明示パスがあればそれを必須とする（無ければ FileNotFoundError）
+      - 無ければ <root>/config/messages.ja.json を必須とする
+      - フォールバックは行わない
     """
     global _MESSAGES
     log = get_app_logger()
 
-    # 1) 設定で明示されたパスを優先
+    # 1) 明示パスが指定されていればそれを必須化
     if msg_path_str:
-        path = Path(msg_path_str)
-        if not path.exists():
+        p = Path(msg_path_str)
+        if not p.exists():
             raise FileNotFoundError(
-                f"Messages file not found: {path}\n"
+                f"Messages file not found: {p}\n"
                 "Please create it or fix [logging.messages].path in your config."
             )
-        _MESSAGES = _load_messages_json(path)
-        log.info(f"[MSG] messages loaded from: {path}")
+        _MESSAGES = _load_and_normalize(p)
+        log.info(f"[MSG] messages loaded from: {p}")
         return
 
-    # 2) 既定探索: <root>/config/messages.ja.json を必須化
+    # 2) <root>/config/messages.ja.json を必須化
     if default_search_root is None:
         raise FileNotFoundError(
             "default_search_root is not provided and no messages path is specified.\n"
             "Cannot locate required config/messages.ja.json."
         )
-
-    ja_candidate = default_search_root / "config" / "messages.ja.json"
-    if not ja_candidate.exists():
+    ja = default_search_root / "config" / "messages.ja.json"
+    if not ja.exists():
         raise FileNotFoundError(
-            f"Required messages file not found: {ja_candidate}\n"
+            f"Required messages file not found: {ja}\n"
             "Create this file or set [logging.messages].path to a valid JSON."
         )
+    _MESSAGES = _load_and_normalize(ja)
+    log.info(f"[MSG] messages loaded from: {ja}")
 
-    _MESSAGES = _load_messages_json(ja_candidate)
-    log.info(f"[MSG] messages loaded from: {ja_candidate}")
+
+# ---------- ログ出力 ----------
+
+def _format_message(tmpl: str, kwargs: Dict[str, Any]) -> str:
+    try:
+        return tmpl.format(**kwargs)
+    except Exception:
+        # プレースホルダ不足のときもそのまま出す（安全側）
+        return tmpl
+
+
+def _route_level(level: str):
+    level = (level or "INFO").upper()
+    log = get_app_logger()
+    return {
+        "DEBUG": log.debug,
+        "INFO": log.info,
+        "WARNING": log.warning,
+        "WARN": log.warning,
+        "ERROR": log.error,
+        "CRITICAL": log.critical,
+    }.get(level, log.info)
 
 
 def log_event(code: str, **kwargs: Any) -> None:
     """
-    イベントをメッセージカタログのコードで記録する。
-    configure_messages() 実行前に呼ばれた場合は KeyError 回避のため code をそのまま出力。
+    メッセージカタログのコードでログ出力。
+    - 既定: INFO
+    - 未定義コードは code 自体をメッセージとして INFO 出力（安全側）
     """
-    log = get_app_logger()
-    tmpl = _MESSAGES.get(code, code)
-    try:
-        msg = tmpl.format(**kwargs)
-    except Exception:
-        msg = tmpl
-    log.info(msg)
+    entry = _MESSAGES.get(code)
+    if entry is None:
+        _route_level("INFO")(code)
+        return
+
+    msg = _format_message(entry["template"], kwargs)
+    _route_level(entry.get("level", "INFO"))(msg)
 
 
-def log_app_start_event(app_name: str) -> None:
-    log_event("APP_START", app=app_name)
+# ---------- 便利関数（サンプルコード用） ----------
+
+def log_app_start_event(title: str) -> None:
+    """
+    APP_START: 構造化でも文字列でも OK
+    - template 側が {title} / {python} / {platform} のどれを使っても埋まるように全て渡す
+    - 後方互換で {app} も渡す
+    """
+    py = platform.python_version()
+    plat = platform.platform()
+    log_event("APP_START", title=title, app=title, python=py, platform=plat)
 
 
 def log_app_exit_event() -> None:
