@@ -1,0 +1,23 @@
+{
+  "APP_START": {
+    "template": "アプリ起動: {title} | Python {python} | {platform}",
+    "level": "INFO",
+    "tags": ["lifecycle"]
+  },
+  "APP_EXIT": {
+    "template": "アプリ終了",
+    "level": "INFO",
+    "tags": ["lifecycle"]
+  },
+  "WORKER_START": { "template": "ワーカー開始", "level": "INFO" },
+  "WORKER_STOP":  { "template": "停止処理中…", "level": "INFO" },
+
+  "OPEN_CONFIG_OK": {
+    "template": "設定フォルダを開く: {path}",
+    "level": "INFO"
+  },
+  "OPEN_CONFIG_ERROR": {
+    "template": "設定フォルダを開けませんでした: {error}",
+    "level": "ERROR"
+  }
+}
