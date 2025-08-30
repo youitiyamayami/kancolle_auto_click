@@ -114,13 +114,26 @@ post_click_wait_ms  = 400     # 押下後の待機ms（画面反映待ち）
 interval_ms = 150    # メインループの待機ms
 
 # ===============================
-# ログ（任意：将来の拡張用）
+# ログ設定（app_logger 用）
+# ※ get_app_logger(cfg) が参照します
 # ===============================
 [logging]
-level = "INFO"       # "DEBUG" | "INFO" | "WARNING" | "ERROR"
-file  = "logs/app.log"
+# 出力レベル（コンソールの既定）
+level = "INFO"             # "DEBUG" | "INFO" | "WARNING" | "ERROR"
 
+# 出力先
+console = true             # コンソール出力を有効にする
+file    = true             # ファイル出力を有効にする
+
+# ファイル出力の詳細
+dir            = "log"     # ログディレクトリ（存在しなければ自動作成）
+level_file     = "DEBUG"   # ファイル側の閾値（詳細を残したい場合は DEBUG 推奨）
+timezone       = "Asia/Tokyo"
+logfile_prefix = "app"     # 例: 20250830_app.log
+logfile_ext    = ".log"
+backup_count   = 14        # 何日分保持するか（0 なら無制限）
+
+# メッセージカタログ
 [logging.messages]
-path = "config/messages.ja.json"
+path   = "config/messages.ja.json"
 locale = "ja"
-

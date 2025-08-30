@@ -15,27 +15,8 @@ try:
 except Exception:
     raise RuntimeError("Python 3.11 以降が必要です（tomllib が標準搭載）。")
 
-import cv2
-import numpy as np
-
-try:
-    import mss  # スクリーンキャプチャ
-except ImportError:
-    raise RuntimeError("mss が必要です: pip install mss")
-
-try:
-    import pyautogui  # クリック
-    pyautogui.FAILSAFE = False
-except ImportError:
-    raise RuntimeError("pyautogui が必要です: pip install pyautogui")
-
-try:
-    import win32gui  # ウィンドウ矩形取得（任意）
-except ImportError:
-    win32gui = None
-
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import ttk, messagebox
 
 # 既存ロガー（ハンドラやフォーマットはこれが持つ）
 from modules.app_logger import get_app_logger  # 既存の設定を流用
@@ -63,51 +44,22 @@ ROOT = Path(__file__).resolve().parent
 # ==========================
 def set_dpi_awareness_windows():
     try:
-        from ctypes import windll
-        windll.shcore.SetProcessDpiAwareness(1)  # SYSTEM_DPI_AWARE
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)  # PER_MONITOR_AWARE
     except Exception:
         pass
 
 
 # ==========================
-# ウィンドウ矩形の取得（任意）
+# 画像処理ユーティリティ（例）
 # ==========================
-def find_window_rect(title: str) -> Optional[Tuple[int, int, int, int]]:
+import cv2
+import numpy as np
+
+
+def to_abs_rect(region: Tuple[int, int, int, int], sub_region: Tuple[int, int, int, int]) -> Tuple[int, int, int, int]:
     """
-    指定タイトルを含む最前面ウィンドウの矩形 (left, top, right, bottom) を返す。
-    取れなければ None。
-    """
-    if not win32gui:
-        return None
-
-    target_hwnd = None
-
-    def enum_handler(hwnd, _):
-        nonlocal target_hwnd
-        if win32gui.IsWindowVisible(hwnd):
-            text = win32gui.GetWindowText(hwnd)
-            if title.lower() in text.lower():
-                target_hwnd = hwnd
-                return False
-        return True
-
-    win32gui.EnumWindows(enum_handler, None)
-    if target_hwnd:
-        rect = win32gui.GetWindowRect(target_hwnd)
-        return rect[0], rect[1], rect[2], rect[3]
-    return None
-
-
-# ==========================
-# サブ領域 bbox の構築
-# ==========================
-def build_sub_bbox_from_subregion(
-    region: List[int],  # [x, y, w, h]（screen.region）
-    sub_region: List[int]  # [sx, sy, sw, sh]
-) -> Tuple[int, int, int, int]:
-    """
-    screen.region の左上を原点として sub_region を加算した bbox を返す。
-    MSS の grab 用に (left, top, right, bottom) で返す。
+    REGIONとSUB_REGIONから絶対座標の矩形(left, top, right, bottom)を返す
     """
     x, y, w, h = region
     sx, sy, sw, sh = sub_region
@@ -140,54 +92,10 @@ def match_best_scale(
         resized = cv2.resize(tmpl_gray, (tw, th), interpolation=cv2.INTER_AREA)
         res = cv2.matchTemplate(gray_roi, resized, method)
         min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-        score = max_val if method in (cv2.TM_CCOEFF_NORMED, cv2.TM_CCORR_NORMED) else 1 - min_val
+        score = max_val if method in (cv2.TM_CCOEFF_NORMED, cv2.TM_CCORR_NORMED) else 1.0 - min_val
         if score > best["score"]:
-            best.update({"score": score, "loc": max_loc, "tw": tw, "th": th, "scale": s})
+            best = {"score": score, "loc": max_loc, "tw": tw, "th": th, "scale": s}
     return best
-
-
-# ==========================
-# テンプレ照合（マスク付き：円テンプレ用）
-# ==========================
-def match_best_scale_with_mask(
-    gray_roi: np.ndarray,
-    tmpl_gray: np.ndarray,
-    mask_gray: np.ndarray,
-    scales,
-) -> Dict[str, Any]:
-    """
-    マスク対応のテンプレ照合で最良スコアを返す。
-    method は TM_CCORR_NORMED を使用（OpenCV 4.2+ でマスク対応）。
-    戻り値: dict(score, loc, tw, th, scale)
-    """
-    best = {"score": -1.0, "loc": (0, 0), "tw": 0, "th": 0, "scale": 1.0}
-    for s in scales:
-        tw = int(round(tmpl_gray.shape[1] * s))
-        th = int(round(tmpl_gray.shape[0] * s))
-        if tw <= 2 or th <= 2:
-            continue
-        resized_t = cv2.resize(tmpl_gray, (tw, th), interpolation=cv2.INTER_AREA)
-        resized_m = cv2.resize(mask_gray, (tw, th), interpolation=cv2.INTER_NEAREST)
-        res = cv2.matchTemplate(gray_roi, resized_t, cv2.TM_CCORR_NORMED, mask=resized_m)
-        _, max_val, _, max_loc = cv2.minMaxLoc(res)
-        if max_val > best["score"]:
-            best.update({"score": max_val, "loc": max_loc, "tw": tw, "th": th, "scale": s})
-    return best
-
-
-# ==========================
-# デバッグ描画/保存
-# ==========================
-def save_debug_rect(img_bgr: np.ndarray, left: int, top: int, w: int, h: int, out_path: Path):
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.rectangle(img_bgr, (left, top), (left + w, top + h), (0, 255, 0), 2)
-    cv2.imwrite(str(out_path), img_bgr)
-
-
-def save_debug_circle(img_bgr: np.ndarray, center: Tuple[int, int], radius: int, out_path: Path):
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    cv2.circle(img_bgr, center, radius, (0, 255, 0), 2)
-    cv2.imwrite(str(out_path), img_bgr)
 
 
 # ==========================
@@ -209,14 +117,19 @@ class CaptureWorker(threading.Thread):
         time.sleep(max(iv_ms, 10) / 1000.0)
 
     def run(self):
-        count = 0
-        self.on_log("稼働中…")
-        while not self._stop_evt.is_set():
-            count += 1
-            if count % 10 == 0:
-                self.on_log(f"稼働中…（{count} サイクル）")
-            self._tick_sleep()
-        self.on_log("停止処理中…")
+        logger = get_app_logger()
+        try:
+            count = 0
+            self.on_log("稼働中…")
+            while not self._stop_evt.is_set():
+                count += 1
+                if count % 10 == 0:
+                    self.on_log(f"稼働中…（{count} サイクル）")
+                self._tick_sleep()
+            self.on_log("停止処理中…")
+        except Exception:
+            logger.exception('CaptureWorker crashed')
+            raise
 
 
 # ==========================
@@ -227,16 +140,50 @@ class ControlWindow(tk.Tk):
         super().__init__()
         self.cfg = cfg
         self.title("Game Bot Control")
-        self.geometry("420x260")
+        self.geometry("420x300")
         self.resizable(False, False)
-        self.attributes("-topmost", True)
 
+        # ---- ステート ----
+        self.status_var = tk.StringVar(value="準備完了")
         self._worker: Optional[CaptureWorker] = None
-        self.status_var = tk.StringVar(value="停止中")
 
-        tk.Label(self, text="ゲームボット操作", font=("Segoe UI", 14, "bold")).pack(pady=(12, 6))
-        tk.Label(self, textvariable=self.status_var).pack(pady=(0, 8))
+        # ---- UI ----
+        self.build_ui()
 
+        # ---- AppContext を準備（UIはそのまま・処理だけ外出し） ----
+        logger = get_app_logger()
+        self.ctx = AppContext(
+            logger=logger,
+            config=self.cfg,
+            project_root=ROOT,
+            set_status=self.status_var.set,
+            start_worker=self._start_worker,
+            stop_worker=self._stop_worker,
+            is_worker_alive=self._worker_is_alive,
+        )
+
+        # 最前面固定
+        self.attributes("-topmost", True)
+        self.after(1000, self.keep_topmost)
+
+    def keep_topmost(self):
+        try:
+            self.attributes("-topmost", True)
+        finally:
+            self.after(1000, self.keep_topmost)
+
+    def build_ui(self):
+        frm = tk.Frame(self, padx=12, pady=10)
+        frm.pack(fill="both", expand=True)
+
+        title = tk.Label(frm, text="Game Bot Control", font=("Meiryo UI", 14, "bold"))
+        title.pack(pady=(0, 8))
+
+        # ステータス表示
+        status = tk.Label(frm, textvariable=self.status_var, anchor="w", relief="sunken")
+        status.pack(fill="x", pady=(0, 8))
+
+        # ボタン群
         btn_frame = tk.Frame(self)
         btn_frame.pack(pady=6, fill="x", padx=12)
         self.start_btn = tk.Button(btn_frame, text="開始", width=12, command=self.on_start)
@@ -251,26 +198,6 @@ class ControlWindow(tk.Tk):
 
         tk.Label(self, text="※ このウィンドウは常に最前面に固定されています（Escで終了）。", fg="#666").pack(pady=(4, 8))
         self.bind("<Escape>", lambda e: self.on_exit())
-
-        # ×ボタンで閉じたときも終了ログを出す
-        self.protocol("WM_DELETE_WINDOW", self.on_exit)
-
-        # 定期的に topmost を維持
-        self.after(1000, self.keep_topmost)
-
-        # ---- AppContext を準備（UIはそのまま・処理だけ外出し） ----
-        logger = get_app_logger()
-        self.ctx = AppContext(
-            logger=logger,
-            config=self.cfg,
-            project_root=ROOT,
-            set_status=self.status_var.set,
-            start_worker=self._start_worker,
-            stop_worker=self._stop_worker,
-            worker_is_alive=self._worker_is_alive,
-            open_path=lambda p: os.startfile(p),
-            get_config_dir=lambda: (self.cfg.get("_meta", {}) or {}).get("config_dir"),
-        )
 
     # --- worker 管理（コンテキストへ提供するコールバック） ---
     def _start_worker(self, on_log: Callable[[str], None]) -> None:
@@ -303,24 +230,19 @@ class ControlWindow(tk.Tk):
             self.start_btn.config(state="normal")
             self.stop_btn.config(state="disabled")
 
-    def open_config_folder(self):
-        ok, msg = gui_actions.open_config_folder(self.ctx)
-        self.status_var.set(msg)
-        if not ok:
-            messagebox.showwarning("Open Config", msg)
-
     def on_exit(self):
-        try:
-            # 稼働中であれば停止してから終了
-            if self.ctx.worker_is_alive():
-                gui_actions.stop(self.ctx)
-        finally:
-            log_app_exit_event()  # APP_EXIT
-            self.destroy()
+        if self._worker and self._worker.is_alive():
+            if not messagebox.askyesno("確認", "処理中です。終了してもよろしいですか？"):
+                return
+            self._stop_worker()
+        log_app_exit_event()
+        self.destroy()
 
-    def keep_topmost(self):
-        self.attributes("-topmost", True)
-        self.after(1000, self.keep_topmost)
+    def open_config_folder(self):
+        try:
+            os.startfile(str(ROOT))
+        except Exception:
+            messagebox.showerror("エラー", "フォルダを開けませんでした。")
 
 
 # ==========================
@@ -336,6 +258,9 @@ def main():
     msg_path = (cfg.get("logging", {}) or {}).get("messages", {}).get("path")
     configure_messages(msg_path, default_search_root=ROOT)
 
+    # ロガーを設定ファイルで初期化（ここで初期化して以後はシングルトンを利用）
+    _ = get_app_logger(cfg)
+
     # 起動ログ（APP_START）
     log_app_start_event("Game Bot Control")
 
@@ -345,6 +270,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # 既存ロガーの初期化を強制したい場合はここで get_app_logger() を呼ぶ
-    _ = get_app_logger()
     main()
