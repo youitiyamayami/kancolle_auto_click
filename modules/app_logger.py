@@ -1,172 +1,302 @@
 # modules/app_logger.py
 """
-アプリ全体で共通利用する**超軽量なロガー**。
+アプリ全体で共通利用するロガーの初期化モジュール。
 
-- 目的
-    - 人間が読みやすい1行ログを、日付ごとに `./log/YYYYMMDD_app.log` へ追記する
-    - ロギング失敗時でも**アプリ動作を絶対に止めない**（例外握りつぶし）
-    - 起動〜終了までの**実行時間**を簡易計測（`perf_counter()`）して記録する
+■ 目的
+- どこでも `from modules.app_logger import get_logger` で同一設定のロガーを取得
+- ログは「log\\YYYYMMDD_app.log」に日付ごとに追記、コンソールにも出力可能
+- フォーマット: [YYYY:MM:DD hh:mm:ss][LEVEL] メッセージ
+- タイムゾーンは Asia/Tokyo（ローカル時刻）
+- Shift_JIS(CP932) でファイル出力（ユーザー環境要件）
+- ハンドラ重複防止、未捕捉例外もERRORで記録可能
+- 実行中にログレベルの動的変更も可能
 
-- 出力形式
-    - `[YYYY/MM/DD hh:mm:ss][LEVEL]実行された動作`
-    - 例: `[2025/08/26 21:13:45][INFO]アプリ起動: Game Bot Control`
+■ 主なAPI
+- get_logger(name="app", cfg: dict | None = None, **overrides) -> logging.Logger
+- set_level(level: str | int, logger: logging.Logger | None = None) -> None
+- log_job(title: str, logger: logging.Logger | None = None, level: int = logging.INFO)
+    -> contextmanager（開始/終了と経過時間を自動ログ）
+- install_global_excepthook(logger: logging.Logger | None = None) -> None
 
-- ローテーション/ファイル構成
-    - 日付（ローカルタイム）でファイル名を切り替え
-    - 同一日のログは**追記**、日付が変われば**新規ファイル**が自動生成
-
-- 想定ユースケース
-    - `log_info("テンプレ判定開始")`
-    - `log_warn("設定ファイルが見つからないためデフォルト値で継続")`
-    - `log_error("画像の読み込みに失敗: path=...")`
-    - `log_app_start("Game Bot Control")  # 起動時に呼ぶ`
-    - `log_app_exit("終了ボタン押下")      # 終了時に呼ぶ`
-
-- 設計上の注意
-    - 依存を最小化（標準ライブラリのみ）
-    - 例外は**握りつぶし**（ログが原因で本処理を止めない）
-    - マルチプロセス/マルチスレッド環境での**同時追記**はOSに任せる（行単位の崩れが起きる可能性は理論上あるが、
-      本用途（人間の目視デバッグ）では実害が小さいため割り切る）
+■ 互換API（既存 main.py 対応用）
+- get_app_logger(cfg: dict | None = None) -> logging.Logger
+- log_app_start(title: str = "Application") -> None
+- log_app_exit() -> None
+- log_info(msg: str) -> None
+- log_error(msg: str) -> None
 """
 
 from __future__ import annotations
 
-import time
+import logging
+import sys
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from time import perf_counter
+from typing import Any, Dict, Iterator, Optional
 
-# プロジェクトルート（このファイル: modules/app_logger.py の1つ上の階層）
-# 例: /path/to/project/modules/app_logger.py -> /path/to/project がROOT
-ROOT = Path(__file__).resolve().parent.parent
-
-# アプリケーションの**起動時刻（単調増加カウンタ）**を保持
-# - time.perf_counter() はスリープやタイムゾーン変更の影響を受けない高精度タイマー
-# - None の間は「未初期化」を表す
-_START_MONO: Optional[float] = None
+try:
+    # 3.9+ 標準
+    from zoneinfo import ZoneInfo
+except Exception:  # pragma: no cover
+    ZoneInfo = None  # type: ignore
 
 
-def _current_log_path() -> Path:
+# ==========================================================
+# 設定デフォルト
+# ==========================================================
+@dataclass(frozen=True)
+class LoggerDefaults:
+    level: str = "INFO"          # 既定レベル
+    console: bool = True         # コンソール出力の有無
+    file: bool = True            # ファイル出力の有無
+    dir: str = "log"             # ログディレクトリ
+    encoding: str = "cp932"      # ファイル出力エンコーディング（Shift_JIS互換）
+    timezone: str = "Asia/Tokyo" # 表示タイムゾーン
+    logfile_prefix: str = "app"  # ログファイル名のプレフィックス
+    logfile_ext: str = ".log"    # 拡張子（.log 推奨）
+
+
+_DEFAULTS = LoggerDefaults()
+
+
+# ==========================================================
+# ユーティリティ
+# ==========================================================
+def _ensure_dir(p: Path) -> Path:
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _today_str(tz_name: str) -> str:
+    tz = ZoneInfo(tz_name) if ZoneInfo and tz_name else None
+    now = datetime.now(tz=tz)
+    return now.strftime("%Y%m%d")
+
+
+def _build_logfile_path(root: Path, prefix: str, ext: str, tz_name: str) -> Path:
+    return root / f"{_today_str(tz_name)}_{prefix}{ext}"
+
+
+def _to_level(level: str | int | None, fallback: int = logging.INFO) -> int:
+    if level is None:
+        return fallback
+    if isinstance(level, int):
+        return level
+    name = str(level).upper()
+    return getattr(logging, name, fallback)
+
+
+class _TzFormatter(logging.Formatter):
     """
-    現在日付（ローカルタイム）に対応するログファイルの Path を返す。
-
-    振る舞い:
-        - ログディレクトリ `./log` が無ければ作成（parents=True, exist_ok=True）
-        - ファイル名: `YYYYMMDD_app.log`（例: 20250826_app.log）
-
-    Returns:
-        Path: 追記対象のログファイルパス
+    タイムゾーン付きの asctime を出力するためのフォーマッタ。
     """
-    ymd = time.strftime("%Y%m%d", time.localtime())  # ローカルタイムで日付を生成（例: "20250826"）
-    log_dir = ROOT / "log"
-    log_dir.mkdir(parents=True, exist_ok=True)       # ディレクトリが無ければ作成（中間ディレクトリも）
-    return log_dir / f"{ymd}_app.log"
+    def __init__(self, fmt: str, datefmt: Optional[str], tz_name: str) -> None:
+        super().__init__(fmt=fmt, datefmt=datefmt)
+        self._tz = ZoneInfo(tz_name) if ZoneInfo and tz_name else None
+
+    def formatTime(self, record: logging.LogRecord, datefmt: Optional[str] = None) -> str:  # noqa: N802
+        dt = datetime.fromtimestamp(record.created, tz=self._tz)
+        if datefmt:
+            return dt.strftime(datefmt)
+        # デフォルト表記
+        return dt.strftime("%Y:%m:%d %H:%M:%S")
 
 
-def _write(level: str, action: str) -> None:
+# ==========================================================
+# ハンドラ重複防止のためのタグ
+# ==========================================================
+_HANDLER_TAG = "kancolle_app_logger_handler_tag"
+
+
+def _is_ours(handler: logging.Handler) -> bool:
+    return getattr(handler, _HANDLER_TAG, False) is True
+
+
+def _tag(handler: logging.Handler) -> None:
+    setattr(handler, _HANDLER_TAG, True)
+
+
+# ==========================================================
+# 主関数: get_logger
+# ==========================================================
+def get_logger(
+    name: str = "app",
+    *,
+    cfg: Optional[Dict[str, Any]] = None,
+    level: Optional[str | int] = None,
+    console: Optional[bool] = None,
+    file: Optional[bool] = None,
+    logfile_root: Optional[Path | str] = None,
+    encoding: Optional[str] = None,
+    timezone: Optional[str] = None,
+    logfile_prefix: Optional[str] = None,
+    logfile_ext: Optional[str] = None,
+) -> logging.Logger:
     """
-    ログ1行を書き出す**内部ユーティリティ**。
-
-    出力形式:
-        [YYYY/MM/DD hh:mm:ss][LEVEL]action
-
-    仕様:
-        - 例外は**すべて無視**（ログ失敗でアプリが止まらないようにする）
-        - 文字コードは UTF-8。Windows メモ帳でも開けるようにBOMは付けない
-        - LEVEL は大文字に正規化
-        - 改行は Unix LF（\\n）。Windows でも特に問題なし（多くのエディタが自動で認識）
-
-    Args:
-        level (str): "INFO" / "WARN" / "ERROR" などの任意のレベル文字列（大文字化して出力）
-        action (str): 人間が読んで意味が通る「実行された動作」メッセージ
+    共通ロガーを返す。複数回呼んでもハンドラは重複追加されない。
     """
+    # 1) cfg と引数から最終値を決定
+    d = (cfg or {}).get("logging", {}) if (cfg and "logging" in cfg) else (cfg or {})
+    level_val = _to_level(level if level is not None else d.get("level", _DEFAULTS.level))
+    use_console = bool(console if console is not None else d.get("console", _DEFAULTS.console))
+    use_file = bool(file if file is not None else d.get("file", _DEFAULTS.file))
+
+    root_dir = Path(
+        logfile_root if logfile_root is not None else d.get("dir", _DEFAULTS.dir)
+    )
+    enc = encoding if encoding is not None else d.get("encoding", _DEFAULTS.encoding)
+    tz_name = timezone if timezone is not None else d.get("timezone", _DEFAULTS.timezone)
+    prefix = logfile_prefix if logfile_prefix is not None else d.get("logfile_prefix", _DEFAULTS.logfile_prefix)
+    ext = logfile_ext if logfile_ext is not None else d.get("logfile_ext", _DEFAULTS.logfile_ext)
+
+    # 2) フォーマット定義（要件準拠）
+    fmt = "[%(asctime)s][%(levelname)s] %(message)s"
+    datefmt = "%Y:%m:%d %H:%M:%S"
+    formatter = _TzFormatter(fmt=fmt, datefmt=datefmt, tz_name=tz_name)
+
+    logger = logging.getLogger(name)
+
+    # 3) ロガー本体のレベルは DEBUG にして、ハンドラ側で絞るのが柔軟
+    logger.setLevel(logging.DEBUG)
+    logger.propagate = False  # 祖先に伝播させない（重複防止）
+
+    # 4) 既存ハンドラの再利用判定
+    has_console = False
+    has_file = False
+    for h in logger.handlers:
+        if _is_ours(h):
+            if isinstance(h, logging.StreamHandler):
+                has_console = True
+            if isinstance(h, logging.FileHandler):
+                has_file = True
+
+    # 5) コンソールハンドラ
+    if use_console and not has_console:
+        ch = logging.StreamHandler(stream=sys.stdout)
+        ch.setLevel(level_val if level is not None else _to_level(d.get("level_console"), level_val))
+        ch.setFormatter(formatter)
+        _tag(ch)
+        logger.addHandler(ch)
+
+    # 6) ファイルハンドラ
+    if use_file and not has_file:
+        logfile_dir = _ensure_dir(Path(root_dir))
+        logfile_path = _build_logfile_path(logfile_dir, prefix, ext, tz_name)
+        fh = logging.FileHandler(logfile_path, mode="a", encoding=enc, delay=True)
+        fh.setLevel(_to_level(d.get("level_file"), logging.DEBUG))
+        fh.setFormatter(formatter)
+        _tag(fh)
+        logger.addHandler(fh)
+
+    # 7) 明示レベル→主にコンソール閾値に反映
+    set_level(level_val, logger=logger)
+
+    return logger
+
+
+# ==========================================================
+# 便利API
+# ==========================================================
+def set_level(level: str | int, *, logger: Optional[logging.Logger] = None) -> None:
+    """実行中にログレベルを変更する。"""
+    lg = logger or logging.getLogger("app")
+    new_level = _to_level(level)
+
+    console_targets = [h for h in lg.handlers if _is_ours(h) and isinstance(h, logging.StreamHandler)]
+    targets = console_targets or [h for h in lg.handlers if _is_ours(h)]
+
+    for h in targets:
+        h.setLevel(new_level)
+
+
+@contextmanager
+def log_job(
+    title: str,
+    *,
+    logger: Optional[logging.Logger] = None,
+    level: int = logging.INFO,
+) -> Iterator[None]:
+    """開始/終了と経過秒を自動ログするコンテキストマネージャ。"""
+    lg = logger or logging.getLogger("app")
+    start = perf_counter()
+    lg.log(level, f"{title} - 開始")
     try:
-        # 例: "2025/08/26 21:13:45"
-        ts = time.strftime("%Y/%m/%d %H:%M:%S", time.localtime())
-        line = f"[{ts}][{level.upper()}]{action}"
-
-        # append モードで開く：ファイルが無ければ**自動生成**される
-        with _current_log_path().open("a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        yield
+        elapsed = perf_counter() - start
+        lg.log(level, f"{title} - 終了 (elapsed={elapsed:.3f}s)")
     except Exception:
-        # ログが原因でアプリを止めないため、握りつぶし
-        # （ディスクフル/パーミッション等の異常でも本処理は継続する）
-        pass
+        elapsed = perf_counter() - start
+        lg.error(f"{title} - 失敗 (elapsed={elapsed:.3f}s)", exc_info=True)
+        raise
 
 
-def log_info(action: str) -> None:
-    """
-    情報レベルのログを出力する。
+def install_global_excepthook(logger: Optional[logging.Logger] = None) -> None:
+    """未捕捉例外を ERROR でロギングする excepthook をインストールする。"""
+    lg = logger or logging.getLogger("app")
 
-    Args:
-        action (str): 実行内容（例: "テンプレ判定開始"）
-    """
-    _write("INFO", action)
+    def _hook(exc_type, exc, tb):
+        try:
+            lg.exception("Uncaught exception", exc_info=(exc_type, exc, tb))
+        finally:
+            sys.__excepthook__(exc_type, exc, tb)
 
-
-def log_warn(action: str) -> None:
-    """
-    警告レベルのログを出力する。
-
-    Args:
-        action (str): 実行内容（例: "設定ファイルが見つからないためデフォルト値で継続"）
-    """
-    _write("WARN", action)
+    sys.excepthook = _hook
 
 
-def log_error(action: str) -> None:
-    """
-    エラーレベルのログを出力する。
-
-    Args:
-        action (str): 実行内容（例: "画像の読み込みに失敗: path=..."}）
-    """
-    _write("ERROR", action)
+# ==========================================================
+# 互換API（main.py が使っている関数名を提供）
+# ==========================================================
+_APP_LOGGER: Optional[logging.Logger] = None
 
 
-def log_app_start(app_name: str = "Game Bot Control") -> None:
-    """
-    アプリケーションの**起動**を記録し、以降の実行時間計測を開始する。
-
-    - 最初の1回だけ `time.perf_counter()` の値を `_START_MONO` に保存（**冪等**）
-    - 計測開始後、`log_info("アプリ起動: ...")` を出力
-
-    Args:
-        app_name (str): アプリ名や実行コンテキスト名。ログの可読性向上のためのメタ情報
-    """
-    global _START_MONO
-    if _START_MONO is None:                 # 二重初期化を防ぐ（複数回呼んでも最初の状態を維持）
-        _START_MONO = time.perf_counter()
-    log_info(f"アプリ起動: {app_name}")
+def get_app_logger(cfg: Optional[Dict[str, Any]] = None) -> logging.Logger:
+    """アプリ共通ロガー（シングルトン）を取得。"""
+    global _APP_LOGGER
+    if _APP_LOGGER is None:
+        _APP_LOGGER = get_logger("app", cfg=cfg)
+        # 未捕捉例外も拾う
+        install_global_excepthook(_APP_LOGGER)
+    return _APP_LOGGER
 
 
-def log_app_exit(label: str = "終了ボタン押下") -> None:
-    """
-    アプリケーションの**終了**を記録する（起動以降の**累積実行時間**を含めて出力）。
-
-    - 起動時に `log_app_start()` が呼ばれていない場合は、実行時間を `00:00:00.000` として記録
-    - 実行時間の整形には `_format_duration()` を使用（`HH:MM:SS.sss`）
-
-    Args:
-        label (str): 終了トリガーの説明（例: "正常終了", "終了ボタン押下", "Ctrl+C" など）
-    """
-    dur = _format_duration(time.perf_counter() - _START_MONO) if _START_MONO is not None else "00:00:00.000"
-    log_info(f"{label}（実行時間={dur}）")
+def log_app_start(title: str = "Application") -> None:
+    """起動ログ（互換）"""
+    lg = get_app_logger()
+    try:
+        import platform
+        lg.info(f"アプリ起動: {title} | Python {platform.python_version()} | {platform.platform()}")
+    except Exception:
+        lg.info(f"アプリ起動: {title}")
 
 
-def _format_duration(sec: float) -> str:
-    """
-    秒（float）を `HH:MM:SS.sss` の可読形式へ整形するヘルパー。
+def log_app_exit() -> None:
+    """終了ログ（互換）"""
+    lg = get_app_logger()
+    lg.info("アプリ終了")
 
-    例:
-        3661.234 -> "01:01:01.234"
 
-    Args:
-        sec (float): 秒（小数を含む）
+def log_info(msg: str) -> None:
+    """任意情報ログ（互換）"""
+    get_app_logger().info(msg)
 
-    Returns:
-        str: "HH:MM:SS.sss"（ゼロ詰め）
-    """
-    h = int(sec // 3600)
-    m = int((sec % 3600) // 60)
-    s = sec - (h * 3600 + m * 60)
-    return f"{h:02}:{m:02}:{s:06.3f}"
+
+def log_error(msg: str) -> None:
+    """任意エラーログ（互換）"""
+    get_app_logger().error(msg)
+
+
+# ==========================================================
+# サンプル（手動テスト用）
+# ==========================================================
+if __name__ == "__main__":
+    log_app_start("Demo")
+    log_info("INFO ログのテスト")
+    try:
+        with log_job("デモ処理"):
+            raise ValueError("テスト例外")
+    except Exception:
+        log_error("例外を捕捉しました")
+    log_app_exit()

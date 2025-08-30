@@ -1,10 +1,6 @@
 # main.py
 # -----------------------------------------------------------------------------
-# このバージョンの追加点（レイアウト変更なし）
-# - GUI（Tk）をクラス ControlWindow で起動し、閉じるまで常駐
-# - 起動/終了ログの整合（起動=main() / 終了=GUIクローズ時）
-# - CaptureWorker を実装（開始/停止ボタンが機能）
-# - 停止時に最終キャプチャを debug_dir へ保存（_stopped_last.png）
+# レイアウト変更なし。ログ出力のみ「イベントコード＋メッセージ外部化」に切替
 # -----------------------------------------------------------------------------
 
 import sys
@@ -15,7 +11,7 @@ from typing import Dict, Any, Optional, Tuple, List, Callable
 from pathlib import Path
 
 try:
-    import tomllib  # noqa: F401  # Python 3.11+
+    import tomllib  # Python 3.11+
 except Exception:
     raise RuntimeError("Python 3.11 以降が必要です（tomllib が標準搭載）。")
 
@@ -41,10 +37,19 @@ except ImportError:
 import tkinter as tk
 from tkinter import messagebox
 
-# ログ（モジュール化）
-from modules.app_logger import log_app_start, log_app_exit, log_info, log_error
-# 設定ローダ（モジュール化）
+# 既存ロガー（ハンドラやフォーマットはこれが持つ）
+from modules.app_logger import get_app_logger  # 既存の設定を流用
+
+# 設定ローダ
 from modules.config_loader import load_config
+
+# メッセージカタログ式ロガー（今回の主役）
+from modules.msglog import (
+    configure_messages,
+    log_app_start_event,
+    log_app_exit_event,
+    log_event,
+)
 
 # スクリプトのあるディレクトリ（相対パス解決に使用）
 ROOT = Path(__file__).resolve().parent
@@ -231,8 +236,6 @@ class CaptureWorker(threading.Thread):
         self.on_log("稼働中…")
         while not self._stop_evt.is_set():
             count += 1
-            # ここで必要ならキャプチャ等の実処理を行う
-            # 今は軽量スモーク（ログ更新のみ）
             if count % 10 == 0:
                 self.on_log(f"稼働中…（{count} サイクル）")
             self._tick_sleep()
@@ -292,7 +295,7 @@ class ControlWindow(tk.Tk):
 
         self._worker = CaptureWorker(self.cfg, on_log=log_cb)
         self._worker.start()
-        log_info("ワーカー開始")
+        log_event("WORKER_START")  # ← 外部化メッセージ
 
     def on_stop(self):
         if self._worker:
@@ -300,46 +303,31 @@ class ControlWindow(tk.Tk):
             self._worker.join(timeout=2.0)
             self._worker = None
 
-#       # 停止時に最終キャプチャを保存
-#       try:
-#           with mss.mss() as sct:
-#               left, top, right, bottom = build_sub_bbox_from_subregion(
-#                   self.cfg["screen"]["region"], self.cfg["screen"]["sub_region"]
-#               )
-#               w = right - left
-#               h = bottom - top
-#               shot = np.array(sct.grab({"left": left, "top": top, "width": w, "height": h}))[:, :, :3]
-#           out = Path(self.cfg["app"]["debug_dir"]) / "_stopped_last.png"
-#           out.parent.mkdir(parents=True, exist_ok=True)
-#           cv2.imwrite(str(out), shot)
-#           log_info(f"停止時キャプチャ保存: {out}")
-#       except Exception as e:
-#           log_error(f"停止時キャプチャ失敗: {e}")
-
         self.status_var.set("停止済み")
         self.start_btn.config(state="normal")
         self.stop_btn.config(state="disabled")
+        log_event("WORKER_STOP")  # ← 外部化メッセージ
 
     def open_config_folder(self):
         cfg_dir = self.cfg.get("_meta", {}).get("config_dir")
         try:
             if cfg_dir and Path(cfg_dir).exists():
                 os.startfile(cfg_dir)
+                log_event("OPEN_CONFIG_OK", path=cfg_dir)
             else:
                 os.startfile(os.path.dirname(os.path.abspath(__file__)))
-            log_info(f"設定フォルダを開く: {cfg_dir or ROOT}")
+                log_event("OPEN_CONFIG_OK", path=str(ROOT))
         except Exception as e:
-            log_error(f"設定フォルダを開けませんでした: {e}")
-            messagebox.showerror("エラー", f"設定フォルダを開けませんでした:\n{e}")
+            log_event("OPEN_CONFIG_ERROR", error=str(e))
 
     def on_exit(self):
         try:
-            # 終了前にワーカーを止める
             if self._worker:
                 self._worker.stop()
                 self._worker.join(timeout=2.0)
+                log_event("WORKER_STOP")
         finally:
-            log_app_exit()
+            log_app_exit_event()  # ← 外部化メッセージ（APP_EXIT）
             self.destroy()
 
     def keep_topmost(self):
@@ -356,8 +344,12 @@ def main():
 
     cfg = load_config()
 
-    # 起動ログ（タイトルは固定表示のまま、ログ用に使うだけ）
-    log_app_start("Game Bot Control")
+    # メッセージカタログの場所を設定（無ければデフォルト探索にフォールバック）
+    msg_path = (cfg.get("logging", {}) or {}).get("messages", {}).get("path")
+    configure_messages(msg_path)
+
+    # 起動ログ（APP_START）
+    log_app_start_event("Game Bot Control")
 
     # GUI 起動（閉じるまでブロック）
     app = ControlWindow(cfg)
@@ -365,4 +357,6 @@ def main():
 
 
 if __name__ == "__main__":
+    # 既存ロガーの初期化を強制したい場合はここで get_app_logger() を呼ぶ
+    _ = get_app_logger()
     main()
