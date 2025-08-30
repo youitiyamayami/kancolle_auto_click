@@ -1,17 +1,19 @@
 {
-  "total_loc": 1022,
+  "total_loc": 1454,
   "concerns": [
     "region",
     "runner",
     "unclassified",
     "config",
-    "assets"
+    "decision",
+    "assets",
+    "ui"
   ],
-  "entropy_H": 1.6757779028963502,
-  "cc95_overall": 10.0,
-  "fanout_avg": 8.7,
-  "io_avg": 0.10380706210589953,
-  "skdi": 0.3963666854344525,
+  "entropy_H": 2.500039677221803,
+  "cc95_overall": 11.0,
+  "fanout_avg": 7.285714285714286,
+  "io_avg": 0.08446446202011001,
+  "skdi": 0.45999999999999996,
   "per_concern": {
     "region": {
       "loc": 113,
@@ -30,17 +32,17 @@
       ]
     },
     "runner": {
-      "loc": 386,
-      "cc95": 9.949999999999996,
-      "ce_avg": 10.333333333333334,
-      "io_avg": 0.10243171380227217,
+      "loc": 254,
+      "cc95": 10.649999999999999,
+      "ce_avg": 9,
+      "io_avg": 0.12962994193073285,
       "files": [
         {
           "path": "main.py",
-          "loc": 175,
-          "cc95": 6,
-          "ce": 11,
-          "io": 0.011428571428571429,
+          "loc": 43,
+          "cc95": 4,
+          "ce": 7,
+          "io": 0.09302325581395349,
           "concern": "runner"
         },
         {
@@ -63,9 +65,9 @@
     },
     "unclassified": {
       "loc": 334,
-      "cc95": 7.0,
-      "ce_avg": 6.5,
-      "io_avg": 0.06151886129334583,
+      "cc95": 6.599999999999994,
+      "ce_avg": 4.333333333333333,
+      "io_avg": 0.04101257419556389,
       "files": [
         {
           "path": "modules/app_context.py",
@@ -98,22 +100,54 @@
           "ce": 6,
           "io": 0.03409090909090909,
           "concern": "unclassified"
+        },
+        {
+          "path": "modules/__init__.py",
+          "loc": 0,
+          "cc95": 1,
+          "ce": 0,
+          "io": 0.0,
+          "concern": "unclassified"
+        },
+        {
+          "path": "ui/__init__.py",
+          "loc": 0,
+          "cc95": 1,
+          "ce": 0,
+          "io": 0.0,
+          "concern": "unclassified"
         }
       ]
     },
     "config": {
-      "loc": 77,
-      "cc95": 6.8,
-      "ce_avg": 6,
-      "io_avg": 0.012987012987012988,
+      "loc": 273,
+      "cc95": 21.699999999999992,
+      "ce_avg": 8,
+      "io_avg": 0.02197802197802198,
       "files": [
         {
           "path": "modules/config_loader.py",
-          "loc": 77,
-          "cc95": 7,
-          "ce": 6,
-          "io": 0.012987012987012988,
+          "loc": 273,
+          "cc95": 36,
+          "ce": 8,
+          "io": 0.02197802197802198,
           "concern": "config"
+        }
+      ]
+    },
+    "decision": {
+      "loc": 208,
+      "cc95": 8.199999999999996,
+      "ce_avg": 8,
+      "io_avg": 0.028846153846153848,
+      "files": [
+        {
+          "path": "modules/policy.py",
+          "loc": 208,
+          "cc95": 11,
+          "ce": 8,
+          "io": 0.028846153846153848,
+          "concern": "decision"
         }
       ]
     },
@@ -130,6 +164,22 @@
           "ce": 14,
           "io": 0.30357142857142855,
           "concern": "assets"
+        }
+      ]
+    },
+    "ui": {
+      "loc": 160,
+      "cc95": 4.699999999999999,
+      "ce_avg": 9,
+      "io_avg": 0.025,
+      "files": [
+        {
+          "path": "ui/main_window.py",
+          "loc": 160,
+          "cc95": 17,
+          "ce": 9,
+          "io": 0.025,
+          "concern": "ui"
         }
       ]
     }
