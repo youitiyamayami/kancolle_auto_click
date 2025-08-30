@@ -150,7 +150,7 @@ class ControlWindow(tk.Tk):
         # ---- UI ----
         self.build_ui()
 
-        # ---- AppContext を準備（UIはそのまま・処理だけ外出し） ----
+        # ---- AppContext を準備（UIはそのまま・処理だけ外出し）----
         logger = get_app_logger()
         self.ctx = AppContext(
             logger=logger,
@@ -159,7 +159,9 @@ class ControlWindow(tk.Tk):
             set_status=self.status_var.set,
             start_worker=self._start_worker,
             stop_worker=self._stop_worker,
-            is_worker_alive=self._worker_is_alive,
+            worker_is_alive=self._worker_is_alive,   # ★追加
+            open_path=self._open_path,               # ★追加
+            get_config_dir=self._get_config_dir,     # ★追加
         )
 
         # 最前面固定
@@ -215,6 +217,23 @@ class ControlWindow(tk.Tk):
     def _worker_is_alive(self) -> bool:
         return bool(self._worker and self._worker.is_alive())
 
+    # --- OS 依存操作の抽象化（AppContext へ渡す） ---
+    def _open_path(self, path: str) -> None:
+        try:
+            os.startfile(path)  # Windows
+        except Exception:
+            try:
+                import subprocess
+                if sys.platform == "darwin":
+                    subprocess.Popen(["open", path])
+                else:
+                    subprocess.Popen(["xdg-open", path])
+            except Exception:
+                pass
+
+    def _get_config_dir(self) -> Optional[str]:
+        return (self.cfg.get("_meta", {}) or {}).get("config_dir")
+
     # --- GUIイベント（処理は gui_actions へ委譲） ---
     def on_start(self):
         started, msg = gui_actions.start(self.ctx)
@@ -239,10 +258,11 @@ class ControlWindow(tk.Tk):
         self.destroy()
 
     def open_config_folder(self):
-        try:
-            os.startfile(str(ROOT))
-        except Exception:
-            messagebox.showerror("エラー", "フォルダを開けませんでした。")
+        # gui_actions に委譲してメッセージとログを一元化
+        ok, msg = gui_actions.open_config_folder(self.ctx)
+        self.status_var.set(msg)
+        if not ok:
+            messagebox.showerror("エラー", msg)
 
 
 # ==========================
