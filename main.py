@@ -1,6 +1,6 @@
 # main.py
 # -----------------------------------------------------------------------------
-# レイアウト変更なし。ログ出力のみ「イベントコード＋メッセージ外部化」に切替
+# レイアウト変更なし。イベント処理は modules/gui_actions へ委譲。
 # -----------------------------------------------------------------------------
 
 import sys
@@ -43,15 +43,18 @@ from modules.app_logger import get_app_logger  # 既存の設定を流用
 # 設定ローダ
 from modules.config_loader import load_config
 
-# メッセージカタログ式ロガー（今回の主役）
+# メッセージカタログ式ロガー（外部化）
 from modules.msglog import (
     configure_messages,
     log_app_start_event,
     log_app_exit_event,
-    log_event,
 )
 
-# スクリプトのあるディレクトリ（相対パス解決に使用）
+# GUIアクションとアプリケーションコンテキスト
+from modules.app_context import AppContext
+import modules.gui_actions as gui_actions
+
+# ルート
 ROOT = Path(__file__).resolve().parent
 
 
@@ -188,32 +191,6 @@ def save_debug_circle(img_bgr: np.ndarray, center: Tuple[int, int], radius: int,
 
 
 # ==========================
-# 円検出（Hough）
-# ==========================
-def detect_circle_hough(
-    gray_roi: np.ndarray,
-    dp: float,
-    min_dist: int,
-    param1: float,
-    param2: float,
-    min_radius: int,
-    max_radius: int,
-) -> Optional[Tuple[int, int, int]]:
-    """
-    HoughCircles で1個だけ返す（最良とみなす）。
-    戻り: (x, y, r) or None
-    """
-    circles = cv2.HoughCircles(
-        gray_roi, cv2.HOUGH_GRADIENT, dp=dp, minDist=min_dist,
-        param1=param1, param2=param2, minRadius=min_radius, maxRadius=max_radius
-    )
-    if circles is None:
-        return None
-    c = np.uint16(np.around(circles))[0][0]  # 最初の1個
-    return int(c[0]), int(c[1]), int(c[2])
-
-
-# ==========================
 # ワーカースレッド
 # ==========================
 class CaptureWorker(threading.Thread):
@@ -281,53 +258,64 @@ class ControlWindow(tk.Tk):
         # 定期的に topmost を維持
         self.after(1000, self.keep_topmost)
 
-    def on_start(self):
+        # ---- AppContext を準備（UIはそのまま・処理だけ外出し） ----
+        logger = get_app_logger()
+        self.ctx = AppContext(
+            logger=logger,
+            config=self.cfg,
+            project_root=ROOT,
+            set_status=self.status_var.set,
+            start_worker=self._start_worker,
+            stop_worker=self._stop_worker,
+            worker_is_alive=self._worker_is_alive,
+            open_path=lambda p: os.startfile(p),
+            get_config_dir=lambda: (self.cfg.get("_meta", {}) or {}).get("config_dir"),
+        )
+
+    # --- worker 管理（コンテキストへ提供するコールバック） ---
+    def _start_worker(self, on_log: Callable[[str], None]) -> None:
         if self._worker and self._worker.is_alive():
-            self.status_var.set("既に稼働中です")
             return
-
-        self.status_var.set("稼働中…")
-        self.start_btn.config(state="disabled")
-        self.stop_btn.config(state="normal")
-
-        def log_cb(msg: str):
-            self.after(0, self.status_var.set, msg)
-
-        self._worker = CaptureWorker(self.cfg, on_log=log_cb)
+        self._worker = CaptureWorker(self.cfg, on_log=on_log)
         self._worker.start()
-        log_event("WORKER_START")  # ← 外部化メッセージ
 
-    def on_stop(self):
+    def _stop_worker(self) -> None:
         if self._worker:
             self._worker.stop()
             self._worker.join(timeout=2.0)
             self._worker = None
 
-        self.status_var.set("停止済み")
-        self.start_btn.config(state="normal")
-        self.stop_btn.config(state="disabled")
-        log_event("WORKER_STOP")  # ← 外部化メッセージ
+    def _worker_is_alive(self) -> bool:
+        return bool(self._worker and self._worker.is_alive())
+
+    # --- GUIイベント（処理は gui_actions へ委譲） ---
+    def on_start(self):
+        started, msg = gui_actions.start(self.ctx)
+        self.status_var.set(msg)
+        if started:
+            self.start_btn.config(state="disabled")
+            self.stop_btn.config(state="normal")
+
+    def on_stop(self):
+        stopped, msg = gui_actions.stop(self.ctx)
+        self.status_var.set(msg)
+        if stopped:
+            self.start_btn.config(state="normal")
+            self.stop_btn.config(state="disabled")
 
     def open_config_folder(self):
-        cfg_dir = self.cfg.get("_meta", {}).get("config_dir")
-        try:
-            if cfg_dir and Path(cfg_dir).exists():
-                os.startfile(cfg_dir)
-                log_event("OPEN_CONFIG_OK", path=cfg_dir)
-            else:
-                os.startfile(os.path.dirname(os.path.abspath(__file__)))
-                log_event("OPEN_CONFIG_OK", path=str(ROOT))
-        except Exception as e:
-            log_event("OPEN_CONFIG_ERROR", error=str(e))
+        ok, msg = gui_actions.open_config_folder(self.ctx)
+        self.status_var.set(msg)
+        if not ok:
+            messagebox.showwarning("Open Config", msg)
 
     def on_exit(self):
         try:
-            if self._worker:
-                self._worker.stop()
-                self._worker.join(timeout=2.0)
-                log_event("WORKER_STOP")
+            # 稼働中であれば停止してから終了
+            if self.ctx.worker_is_alive():
+                gui_actions.stop(self.ctx)
         finally:
-            log_app_exit_event()  # ← 外部化メッセージ（APP_EXIT）
+            log_app_exit_event()  # APP_EXIT
             self.destroy()
 
     def keep_topmost(self):
@@ -346,7 +334,7 @@ def main():
 
     # メッセージカタログの場所を設定（無ければデフォルト探索にフォールバック）
     msg_path = (cfg.get("logging", {}) or {}).get("messages", {}).get("path")
-    configure_messages(msg_path)
+    configure_messages(msg_path, default_search_root=ROOT)
 
     # 起動ログ（APP_START）
     log_app_start_event("Game Bot Control")

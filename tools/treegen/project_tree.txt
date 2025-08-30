@@ -1,11 +1,16 @@
 kancolle_program
 ├─ config
-│  └─ config.default.toml
+│  ├─ config.default.toml
+│  └─ messages.ja.json
 ├─ debug_shots
 ├─ image
 ├─ log
 ├─ modules
-│  └─ app_logger.py
+│  ├─ app_context.py
+│  ├─ app_logger.py
+│  ├─ config_loader.py
+│  ├─ gui_actions.py
+│  └─ msglog.py
 ├─ templates
 │  ├─ attack_btn.png
 │  ├─ Circular_btn.png
@@ -25,6 +30,28 @@ kancolle_program
 ├─ tools
 │  ├─ concern_audit
 │  │  └─ concern_audit.py
+│  ├─ create_templetes
+│  │  ├─ debug_shots
+│  │  │  └─ empty
+│  │  ├─ templates
+│  │  │  ├─ attack_btn.png
+│  │  │  ├─ Circular_btn.png
+│  │  │  ├─ compass_btn.png
+│  │  │  ├─ compass_btn_mask.png
+│  │  │  ├─ critically_damaged__btn.png
+│  │  │  ├─ Double_vertical_btn.png
+│  │  │  ├─ moderately_damaged_btn.png
+│  │  │  ├─ next_btn.png
+│  │  │  ├─ next_btn_mask.png
+│  │  │  ├─ night_battle_btn.png
+│  │  │  ├─ no_pursuit_btn.png
+│  │  │  ├─ retreat_btn.png
+│  │  │  ├─ return_btn.png
+│  │  │  ├─ return_btn_mask.png
+│  │  │  ├─ Single_horizontal_btn.png
+│  │  │  ├─ Single_vertical_btn.png
+│  │  │  └─ Trapezoida_btn.png
+│  │  └─ config.default.toml
 │  └─ treegen
 │     ├─ project_tree.txt
 │     └─ treegen.py
@@ -33,4 +60,5 @@ kancolle_program
 ├─ concerns.toml
 ├─ main.py
 ├─ run_main.bat
-└─ run_main.ps1
+├─ run_main.ps1
+└─ コミット対象資源.txt
